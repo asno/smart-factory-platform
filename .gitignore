@@ -1,0 +1,26 @@
+# binaries
+bin/
+dist/
+
+# Go
+*.exe
+*.test
+*.out
+vendor/
+
+# env
+.env
+
+# vscode
+.vscode/
+
+# logs
+logs/
+*.log
+
+# docker
+data/
+
+# OS
+.DS_Store
+Thumbs.db
