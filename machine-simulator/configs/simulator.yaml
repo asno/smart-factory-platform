@@ -1,0 +1,13 @@
+simulation:
+  tick_interval_seconds: 2
+
+machines:
+  conveyors:
+    - name: Conveyor-01
+    - name: Conveyor-02
+
+  ovens:
+    - name: Oven-01
+
+  pumps:
+    - name: Pump-01

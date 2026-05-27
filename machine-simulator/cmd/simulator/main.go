@@ -10,6 +10,8 @@ import (
 	"smart-factory/machine-simulator/internal/logging"
 	"smart-factory/machine-simulator/internal/machines"
 	"smart-factory/machine-simulator/internal/telemetry"
+	"smart-factory/machine-simulator/internal/config"
+	"smart-factory/machine-simulator/internal/simulation"
 	"go.uber.org/zap"
 )
 
@@ -28,15 +30,53 @@ func main() {
 	defer cancel()
 
 	eventBus := events.NewBus(100)
+	cfg, err := config.Load("configs/simulator.yaml")
 
-	conveyor := machines.NewConveyor(
-		"Conveyor-01",
-		eventBus,
+	if err != nil {
+		panic(err)
+	}
+
+	for _, c := range cfg.Machines.Conveyors {
+
+		conveyor := machines.NewConveyor(
+			c.Name,
+			eventBus,
+		)
+
+		conveyor.Start()
+
+		go conveyor.Run(ctx)
+	}
+
+	for _, o := range cfg.Machines.Ovens {
+
+		oven := machines.NewOven(
+			o.Name,
+			eventBus,
+		)
+
+		oven.Start()
+
+		go oven.Run(ctx)
+	}
+
+	for _, p := range cfg.Machines.Pumps {
+
+		pump := machines.NewPump(
+			p.Name,
+			eventBus,
+		)
+
+		pump.Start()
+
+		go pump.Run(ctx)
+	}
+
+	go simulation.StartHeartbeat(
+		ctx,
+		"machine-simulator",
 	)
-
-	conveyor.Start()
-
-	go conveyor.Run(ctx)
+	
 
 	go processEvents(eventBus)
 
