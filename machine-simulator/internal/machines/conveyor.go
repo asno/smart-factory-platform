@@ -1,24 +1,41 @@
 package machines
 
 import (
+	"context"
 	"math/rand"
 	"time"
+	"smart-factory/machine-simulator/internal/alarms"
+	"smart-factory/machine-simulator/internal/events"
+	"smart-factory/machine-simulator/internal/telemetry"
 )
 
 type Conveyor struct {
-	ID              string
-	Name            string
-	State           MachineState
+	ID    string
+	Name  string
+	State MachineState
+
 	Speed           float64
+	Temperature     float64
+	PowerConsumption float64
+
 	ProductionCount int
+
+	EventBus *events.Bus
 }
 
-func NewConveyor(name string) *Conveyor {
+func NewConveyor(
+	name string,
+	eventBus *events.Bus,
+) *Conveyor {
+
 	return &Conveyor{
-		ID:    NewMachineID(),
-		Name:  name,
-		State: StateStopped,
-		Speed: 0,
+		ID:               NewMachineID(),
+		Name:             name,
+		State:            StateStopped,
+		EventBus:         eventBus,
+		Temperature:      25,
+		Speed:            0,
+		PowerConsumption: 0,
 	}
 }
 
@@ -28,23 +45,85 @@ func (c *Conveyor) Start() {
 
 func (c *Conveyor) Stop() {
 	c.State = StateStopped
-	c.Speed = 0
+}
+
+func (c *Conveyor) Run(ctx context.Context) {
+
+	ticker := time.NewTicker(2 * time.Second)
+
+	defer ticker.Stop()
+
+	for {
+		select {
+
+		case <-ctx.Done():
+			return
+
+		case <-ticker.C:
+
+			c.Update()
+
+			c.publishTelemetry()
+
+			c.checkAlarms()
+		}
+	}
 }
 
 func (c *Conveyor) Update() {
+
 	if c.State != StateRunning {
 		return
 	}
 
-	c.Speed = 60 + rand.Float64()*20
-	c.ProductionCount += rand.Intn(5)
+	c.Speed = 65 + rand.Float64()*15
+
+	c.Temperature += rand.Float64()*2 - 1
+
+	c.PowerConsumption = 4 + rand.Float64()*3
+
+	c.ProductionCount += rand.Intn(8)
+
+	if rand.Float64() < 0.01 {
+		c.State = StateFault
+	}
 }
 
-func (c *Conveyor) GetTelemetry() MachineTelemetry {
-	return MachineTelemetry{
-		ID:        c.ID,
-		Name:      c.Name,
-		State:     c.State,
-		Timestamp: time.Now(),
+func (c *Conveyor) publishTelemetry() {
+
+	t := telemetry.Telemetry{
+		MachineID:       c.ID,
+		MachineName:     c.Name,
+		State:           string(c.State),
+		Temperature:     c.Temperature,
+		Speed:           c.Speed,
+		Power:           c.PowerConsumption,
+		ProductionCount: c.ProductionCount,
+		Timestamp:       time.Now(),
+	}
+
+	c.EventBus.Events <- events.Event{
+		Type:    "telemetry",
+		Payload: t,
+	}
+}
+
+func (c *Conveyor) checkAlarms() {
+
+	if c.Temperature > 80 {
+
+		alarm := alarms.Alarm{
+			MachineID:   c.ID,
+			MachineName: c.Name,
+			Message:     "Conveyor overheating",
+			Severity:    alarms.SeverityHigh,
+			Active:      true,
+			Timestamp:   time.Now(),
+		}
+
+		c.EventBus.Events <- events.Event{
+			Type:    "alarm",
+			Payload: alarm,
+		}
 	}
 }
