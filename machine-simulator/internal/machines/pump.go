@@ -10,9 +10,9 @@ import (
 )
 
 type Pump struct {
-	ID    string
-	Name  string
-	State MachineState
+	ID   string
+	Name string
+	FSM  RuntimeStateMachine
 
 	Pressure         float64
 	FlowRate         float64
@@ -32,7 +32,7 @@ func NewPump(
 	return &Pump{
 		ID:       NewMachineID(),
 		Name:     name,
-		State:    StateStopped,
+		FSM:      RuntimeStateMachine{State: StateStopped},
 		EventBus: eventBus,
 		Pressure: 2.0,
 		FlowRate: 0,
@@ -44,15 +44,32 @@ func (p *Pump) GetName() string {
 }
 
 func (p *Pump) GetState() MachineState {
-	return p.State
+	return p.FSM.State
 }
 
 func (p *Pump) Start() {
-	p.State = StateRunning
+	p.FSM.Transition(
+		StateRunning,
+		0,
+	)
 }
 
-func (c *Pump) Stop() {
-	c.State = StateStopped
+func (p *Pump) Stop() {
+	p.FSM.Transition(
+		StateStopped,
+		0,
+	)
+}
+
+func (p *Pump) Tick() time.Duration {
+	return 2 * time.Second
+}
+
+func (p *Pump) Cycle() {
+
+	p.Update()
+	p.publishTelemetry()
+	p.checkAlarms()
 }
 
 func (p *Pump) Run(ctx context.Context) {
@@ -80,38 +97,56 @@ func (p *Pump) Run(ctx context.Context) {
 
 func (p *Pump) Update() {
 
-	if p.State == StateFault {
+	now := time.Now()
+
+	if p.FSM.State == StateFault {
 
 		p.DowntimeSeconds += 2
 
-		if rand.Float64() < 0.12 {
-			p.State = StateRecovering
+		if now.After(p.FSM.NextTransitionAt) {
+
+			p.FSM.Transition(
+				StateRecovering,
+				3*time.Second,
+			)
 		}
-
 		return
 	}
 
-	if p.State == StateRecovering {
+	if p.FSM.State == StateRecovering {
 
-		time.Sleep(2 * time.Second)
-		p.State = StateRunning
+		if now.After(p.FSM.NextTransitionAt) {
+
+			p.FSM.Transition(
+				StateRunning,
+				3*time.Second,
+			)
+		}
 		return
 	}
 
-	if p.State == StateMaintenance {
+	if p.FSM.State == StateMaintenance {
 
-		time.Sleep(4 * time.Second)
-		p.State = StateRunning
+		if now.After(p.FSM.NextTransitionAt) {
+
+			p.FSM.Transition(
+				StateRunning,
+				5*time.Second,
+			)
+		}
 		return
 	}
 
-	if p.State != StateRunning {
+	if p.FSM.State != StateRunning {
 		return
 	}
 
 	if rand.Float64() < 0.003 {
 
-		p.State = StateMaintenance
+		p.FSM.Transition(
+			StateMaintenance,
+			5*time.Second,
+		)
 		return
 	}
 
@@ -123,8 +158,11 @@ func (p *Pump) Update() {
 
 	if rand.Float64() < 0.01 {
 
-		p.State = StateFault
 		p.ErrorCount++
+		p.FSM.Transition(
+			StateFault,
+			8*time.Second,
+		)
 	}
 
 	p.RuntimeSeconds += 2
@@ -135,7 +173,7 @@ func (p *Pump) publishTelemetry() {
 	t := telemetry.Telemetry{
 		MachineID:   p.ID,
 		MachineName: p.Name,
-		State:       string(p.State),
+		State:       string(p.FSM.State),
 
 		Power: p.PowerConsumption,
 

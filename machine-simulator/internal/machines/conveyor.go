@@ -10,9 +10,9 @@ import (
 )
 
 type Conveyor struct {
-	ID    string
-	Name  string
-	State MachineState
+	ID   string
+	Name string
+	FSM  RuntimeStateMachine
 
 	Speed            float64
 	Temperature      float64
@@ -32,9 +32,11 @@ func NewConveyor(
 ) *Conveyor {
 
 	return &Conveyor{
-		ID:               NewMachineID(),
-		Name:             name,
-		State:            StateStopped,
+		ID:   NewMachineID(),
+		Name: name,
+		FSM: RuntimeStateMachine{
+			State: StateStopped,
+		},
 		EventBus:         eventBus,
 		Temperature:      25,
 		Speed:            0,
@@ -47,15 +49,32 @@ func (c *Conveyor) GetName() string {
 }
 
 func (c *Conveyor) GetState() MachineState {
-	return c.State
+	return c.FSM.State
 }
 
 func (c *Conveyor) Start() {
-	c.State = StateRunning
+	c.FSM.Transition(
+		StateRunning,
+		0,
+	)
 }
 
 func (c *Conveyor) Stop() {
-	c.State = StateStopped
+	c.FSM.Transition(
+		StateStopped,
+		0,
+	)
+}
+
+func (c *Conveyor) Tick() time.Duration {
+	return 2 * time.Second
+}
+
+func (c *Conveyor) Cycle() {
+
+	c.Update()
+	c.publishTelemetry()
+	c.checkAlarms()
 }
 
 func (c *Conveyor) Run(ctx context.Context) {
@@ -87,22 +106,56 @@ func (c *Conveyor) Run(ctx context.Context) {
 
 func (c *Conveyor) Update() {
 
-	if c.State == StateFault {
+	now := time.Now()
+
+	if c.FSM.State == StateFault {
+
 		c.DowntimeSeconds += 2
 
-		if rand.Float64() < 0.15 {
-			c.State = StateRecovering
+		if now.After(c.FSM.NextTransitionAt) {
+
+			c.FSM.Transition(
+				StateRecovering,
+				3*time.Second,
+			)
 		}
 		return
 	}
 
-	if c.State == StateRecovering {
-		time.Sleep(2 * time.Second)
-		c.State = StateRunning
+	if c.FSM.State == StateRecovering {
+
+		if now.After(c.FSM.NextTransitionAt) {
+
+			c.FSM.Transition(
+				StateRunning,
+				0,
+			)
+		}
 		return
 	}
 
-	if c.State != StateRunning {
+	if c.FSM.State == StateMaintenance {
+
+		if now.After(c.FSM.NextTransitionAt) {
+
+			c.FSM.Transition(
+				StateRunning,
+				0,
+			)
+		}
+		return
+	}
+
+	if c.FSM.State != StateRunning {
+		return
+	}
+
+	if rand.Float64() < 0.003 {
+
+		c.FSM.Transition(
+			StateMaintenance,
+			5*time.Second,
+		)
 		return
 	}
 
@@ -114,19 +167,16 @@ func (c *Conveyor) Update() {
 
 	c.ProductionCount += rand.Intn(8)
 
-	c.RuntimeSeconds += 2
-
 	if rand.Float64() < 0.02 {
-		c.State = StateFault
+
 		c.ErrorCount++
+		c.FSM.Transition(
+			StateFault,
+			8*time.Second,
+		)
 	}
 
-	if rand.Float64() < 0.003 {
-		c.State = StateMaintenance
-		time.Sleep(3 * time.Second)
-		c.State = StateRunning
-		return
-	}
+	c.RuntimeSeconds += 2
 }
 
 func (c *Conveyor) publishTelemetry() {
@@ -134,7 +184,7 @@ func (c *Conveyor) publishTelemetry() {
 	t := telemetry.Telemetry{
 		MachineID:       c.ID,
 		MachineName:     c.Name,
-		State:           string(c.State),
+		State:           string(c.FSM.State),
 		Temperature:     c.Temperature,
 		Speed:           c.Speed,
 		Power:           c.PowerConsumption,

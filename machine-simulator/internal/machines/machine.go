@@ -40,9 +40,27 @@ type RuntimeMachine interface {
 	Update()
 	GetName() string
 	GetState() MachineState
+	Tick() time.Duration
+	Cycle()
 	Run(context.Context)
+}
+
+type RuntimeStateMachine struct {
+	State            MachineState
+	LastTransitionAt time.Time
+	NextTransitionAt time.Time
 }
 
 func NewMachineID() string {
 	return uuid.New().String()
+}
+
+func (r *RuntimeStateMachine) Transition(
+	newState MachineState,
+	duration time.Duration,
+) {
+
+	r.State = newState
+	r.LastTransitionAt = time.Now()
+	r.NextTransitionAt = time.Now().Add(duration)
 }

@@ -10,9 +10,9 @@ import (
 )
 
 type Oven struct {
-	ID    string
-	Name  string
-	State MachineState
+	ID   string
+	Name string
+	FSM  RuntimeStateMachine
 
 	Temperature       float64
 	TargetTemperature float64
@@ -32,7 +32,7 @@ func NewOven(
 	return &Oven{
 		ID:                NewMachineID(),
 		Name:              name,
-		State:             StateStopped,
+		FSM:               RuntimeStateMachine{State: StateStopped},
 		Temperature:       25,
 		TargetTemperature: 180,
 		EventBus:          eventBus,
@@ -44,15 +44,32 @@ func (o *Oven) GetName() string {
 }
 
 func (o *Oven) GetState() MachineState {
-	return o.State
+	return o.FSM.State
 }
 
 func (o *Oven) Start() {
-	o.State = StateRunning
+	o.FSM.Transition(
+		StateRunning,
+		0,
+	)
 }
 
-func (c *Oven) Stop() {
-	c.State = StateStopped
+func (o *Oven) Stop() {
+	o.FSM.Transition(
+		StateStopped,
+		0,
+	)
+}
+
+func (o *Oven) Tick() time.Duration {
+	return 3 * time.Second
+}
+
+func (o *Oven) Cycle() {
+
+	o.Update()
+	o.publishTelemetry()
+	o.checkAlarms()
 }
 
 func (o *Oven) Run(ctx context.Context) {
@@ -80,37 +97,56 @@ func (o *Oven) Run(ctx context.Context) {
 
 func (o *Oven) Update() {
 
-	if o.State == StateFault {
+	now := time.Now()
+
+	if o.FSM.State == StateFault {
 
 		o.DowntimeSeconds += 3
 
-		if rand.Float64() < 0.10 {
-			o.State = StateRecovering
+		if now.After(o.FSM.NextTransitionAt) {
+
+			o.FSM.Transition(
+				StateRecovering,
+				3*time.Second,
+			)
 		}
 		return
 	}
 
-	if o.State == StateRecovering {
+	if o.FSM.State == StateRecovering {
 
-		time.Sleep(3 * time.Second)
-		o.State = StateRunning
+		if now.After(o.FSM.NextTransitionAt) {
+
+			o.FSM.Transition(
+				StateRunning,
+				3*time.Second,
+			)
+		}
 		return
 	}
 
-	if o.State == StateMaintenance {
+	if o.FSM.State == StateMaintenance {
 
-		time.Sleep(5 * time.Second)
-		o.State = StateRunning
+		if now.After(o.FSM.NextTransitionAt) {
+
+			o.FSM.Transition(
+				StateRunning,
+				5*time.Second,
+			)
+		}
 		return
 	}
 
-	if o.State != StateRunning {
+	if o.FSM.State != StateRunning {
 		return
 	}
 
 	if rand.Float64() < 0.002 {
 
-		o.State = StateMaintenance
+		o.FSM.Transition(
+			StateMaintenance,
+			6*time.Second,
+		)
 		return
 	}
 
@@ -124,8 +160,11 @@ func (o *Oven) Update() {
 
 	if rand.Float64() < 0.015 {
 
-		o.State = StateFault
 		o.ErrorCount++
+		o.FSM.Transition(
+			StateFault,
+			8*time.Second,
+		)
 	}
 
 	o.RuntimeSeconds += 3
@@ -136,7 +175,7 @@ func (o *Oven) publishTelemetry() {
 	t := telemetry.Telemetry{
 		MachineID:   o.ID,
 		MachineName: o.Name,
-		State:       string(o.State),
+		State:       string(o.FSM.State),
 
 		Temperature: o.Temperature,
 		Power:       o.PowerConsumption,
