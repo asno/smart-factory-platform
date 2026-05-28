@@ -4,14 +4,15 @@ import (
 	"context"
 	"os"
 	"os/signal"
-	"syscall"
 	"smart-factory/machine-simulator/internal/alarms"
+	"smart-factory/machine-simulator/internal/config"
 	"smart-factory/machine-simulator/internal/events"
 	"smart-factory/machine-simulator/internal/logging"
 	"smart-factory/machine-simulator/internal/machines"
-	"smart-factory/machine-simulator/internal/telemetry"
-	"smart-factory/machine-simulator/internal/config"
 	"smart-factory/machine-simulator/internal/simulation"
+	"smart-factory/machine-simulator/internal/telemetry"
+	"syscall"
+
 	"go.uber.org/zap"
 )
 
@@ -72,11 +73,12 @@ func main() {
 		go pump.Run(ctx)
 	}
 
+	go simulation.StartRuntimeSupervisor(ctx)
+
 	go simulation.StartHeartbeat(
 		ctx,
 		"machine-simulator",
 	)
-	
 
 	go processEvents(eventBus)
 

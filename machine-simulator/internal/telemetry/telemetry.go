@@ -11,6 +11,10 @@ type Telemetry struct {
 	Speed       float64
 	Power       float64
 
+	RuntimeSeconds  float64
+	DowntimeSeconds float64
+	ErrorCount      int
+
 	ProductionCount int
 
 	Timestamp time.Time

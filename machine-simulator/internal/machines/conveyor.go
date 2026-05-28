@@ -3,10 +3,10 @@ package machines
 import (
 	"context"
 	"math/rand"
-	"time"
 	"smart-factory/machine-simulator/internal/alarms"
 	"smart-factory/machine-simulator/internal/events"
 	"smart-factory/machine-simulator/internal/telemetry"
+	"time"
 )
 
 type Conveyor struct {
@@ -14,9 +14,12 @@ type Conveyor struct {
 	Name  string
 	State MachineState
 
-	Speed           float64
-	Temperature     float64
+	Speed            float64
+	Temperature      float64
 	PowerConsumption float64
+	RuntimeSeconds   float64
+	DowntimeSeconds  float64
+	ErrorCount       int
 
 	ProductionCount int
 
@@ -49,7 +52,11 @@ func (c *Conveyor) Stop() {
 
 func (c *Conveyor) Run(ctx context.Context) {
 
-	ticker := time.NewTicker(2 * time.Second)
+	baseInterval := 2 * time.Second
+
+	jitter := time.Duration(rand.Intn(500)) * time.Millisecond
+
+	ticker := time.NewTicker(baseInterval + jitter)
 
 	defer ticker.Stop()
 
@@ -72,6 +79,21 @@ func (c *Conveyor) Run(ctx context.Context) {
 
 func (c *Conveyor) Update() {
 
+	if c.State == StateFault {
+		c.DowntimeSeconds += 2
+
+		if rand.Float64() < 0.15 {
+			c.State = StateRecovering
+		}
+		return
+	}
+
+	if c.State == StateRecovering {
+		time.Sleep(2 * time.Second)
+		c.State = StateRunning
+		return
+	}
+
 	if c.State != StateRunning {
 		return
 	}
@@ -84,8 +106,18 @@ func (c *Conveyor) Update() {
 
 	c.ProductionCount += rand.Intn(8)
 
-	if rand.Float64() < 0.01 {
+	c.RuntimeSeconds += 2
+
+	if rand.Float64() < 0.02 {
 		c.State = StateFault
+		c.ErrorCount++
+	}
+
+	if rand.Float64() < 0.003 {
+		c.State = StateMaintenance
+		time.Sleep(3 * time.Second)
+		c.State = StateRunning
+		return
 	}
 }
 
@@ -99,6 +131,9 @@ func (c *Conveyor) publishTelemetry() {
 		Speed:           c.Speed,
 		Power:           c.PowerConsumption,
 		ProductionCount: c.ProductionCount,
+		RuntimeSeconds:  c.RuntimeSeconds,
+		DowntimeSeconds: c.DowntimeSeconds,
+		ErrorCount:      c.ErrorCount,
 		Timestamp:       time.Now(),
 	}
 
