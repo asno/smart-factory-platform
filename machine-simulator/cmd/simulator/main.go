@@ -12,8 +12,6 @@ import (
 	"smart-factory/machine-simulator/internal/simulation"
 	"smart-factory/machine-simulator/internal/telemetry"
 	"syscall"
-
-	"go.uber.org/zap"
 )
 
 func main() {
@@ -37,6 +35,8 @@ func main() {
 		panic(err)
 	}
 
+	registry := simulation.NewRegistry()
+
 	for _, c := range cfg.Machines.Conveyors {
 
 		conveyor := machines.NewConveyor(
@@ -45,8 +45,7 @@ func main() {
 		)
 
 		conveyor.Start()
-
-		go conveyor.Run(ctx)
+		registry.Add(conveyor)
 	}
 
 	for _, o := range cfg.Machines.Ovens {
@@ -57,8 +56,7 @@ func main() {
 		)
 
 		oven.Start()
-
-		go oven.Run(ctx)
+		registry.Add(oven)
 	}
 
 	for _, p := range cfg.Machines.Pumps {
@@ -69,9 +67,13 @@ func main() {
 		)
 
 		pump.Start()
-
-		go pump.Run(ctx)
+		registry.Add(pump)
 	}
+
+	simulation.StartScheduler(
+		ctx,
+		registry,
+	)
 
 	go simulation.StartRuntimeSupervisor(ctx)
 
@@ -95,26 +97,13 @@ func processEvents(eventBus *events.Bus) {
 
 			t := event.Payload.(telemetry.Telemetry)
 
-			logging.Logger.Info(
-				"telemetry received",
-				zap.String("machine", t.MachineName),
-				zap.String("state", t.State),
-				zap.Float64("temperature", t.Temperature),
-				zap.Float64("speed", t.Speed),
-				zap.Float64("power", t.Power),
-				zap.Int("production_count", t.ProductionCount),
-			)
+			telemetry.Dispatch(t)
 
 		case "alarm":
 
 			a := event.Payload.(alarms.Alarm)
 
-			logging.Logger.Warn(
-				"alarm triggered",
-				zap.String("machine", a.MachineName),
-				zap.String("message", a.Message),
-				zap.String("severity", string(a.Severity)),
-			)
+			alarms.Dispatch(a)
 		}
 	}
 }

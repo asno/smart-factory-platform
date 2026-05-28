@@ -1,6 +1,7 @@
 package machines
 
 import (
+	"context"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,6 +32,15 @@ type Machine interface {
 	Stop()
 	Update()
 	GetTelemetry() MachineTelemetry
+}
+
+type RuntimeMachine interface {
+	Start()
+	Stop()
+	Update()
+	GetName() string
+	GetState() MachineState
+	Run(context.Context)
 }
 
 func NewMachineID() string {

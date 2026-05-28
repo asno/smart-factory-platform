@@ -3,10 +3,10 @@ package machines
 import (
 	"context"
 	"math/rand"
-	"time"
 	"smart-factory/machine-simulator/internal/alarms"
 	"smart-factory/machine-simulator/internal/events"
 	"smart-factory/machine-simulator/internal/telemetry"
+	"time"
 )
 
 type Pump struct {
@@ -17,6 +17,9 @@ type Pump struct {
 	Pressure         float64
 	FlowRate         float64
 	PowerConsumption float64
+	RuntimeSeconds   float64
+	DowntimeSeconds  float64
+	ErrorCount       int
 
 	EventBus *events.Bus
 }
@@ -27,17 +30,29 @@ func NewPump(
 ) *Pump {
 
 	return &Pump{
-		ID:        NewMachineID(),
-		Name:      name,
-		State:     StateStopped,
-		EventBus:  eventBus,
-		Pressure:  2.0,
-		FlowRate:  0,
+		ID:       NewMachineID(),
+		Name:     name,
+		State:    StateStopped,
+		EventBus: eventBus,
+		Pressure: 2.0,
+		FlowRate: 0,
 	}
+}
+
+func (p *Pump) GetName() string {
+	return p.Name
+}
+
+func (p *Pump) GetState() MachineState {
+	return p.State
 }
 
 func (p *Pump) Start() {
 	p.State = StateRunning
+}
+
+func (c *Pump) Stop() {
+	c.State = StateStopped
 }
 
 func (p *Pump) Run(ctx context.Context) {
@@ -65,7 +80,38 @@ func (p *Pump) Run(ctx context.Context) {
 
 func (p *Pump) Update() {
 
+	if p.State == StateFault {
+
+		p.DowntimeSeconds += 2
+
+		if rand.Float64() < 0.12 {
+			p.State = StateRecovering
+		}
+
+		return
+	}
+
+	if p.State == StateRecovering {
+
+		time.Sleep(2 * time.Second)
+		p.State = StateRunning
+		return
+	}
+
+	if p.State == StateMaintenance {
+
+		time.Sleep(4 * time.Second)
+		p.State = StateRunning
+		return
+	}
+
 	if p.State != StateRunning {
+		return
+	}
+
+	if rand.Float64() < 0.003 {
+
+		p.State = StateMaintenance
 		return
 	}
 
@@ -75,9 +121,13 @@ func (p *Pump) Update() {
 
 	p.PowerConsumption = 6 + rand.Float64()*4
 
-	if rand.Float64() < 0.005 {
+	if rand.Float64() < 0.01 {
+
 		p.State = StateFault
+		p.ErrorCount++
 	}
+
+	p.RuntimeSeconds += 2
 }
 
 func (p *Pump) publishTelemetry() {
@@ -88,6 +138,10 @@ func (p *Pump) publishTelemetry() {
 		State:       string(p.State),
 
 		Power: p.PowerConsumption,
+
+		RuntimeSeconds:  p.RuntimeSeconds,
+		DowntimeSeconds: p.DowntimeSeconds,
+		ErrorCount:      p.ErrorCount,
 
 		Timestamp: time.Now(),
 	}

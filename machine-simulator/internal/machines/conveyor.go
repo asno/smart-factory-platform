@@ -42,6 +42,14 @@ func NewConveyor(
 	}
 }
 
+func (c *Conveyor) GetName() string {
+	return c.Name
+}
+
+func (c *Conveyor) GetState() MachineState {
+	return c.State
+}
+
 func (c *Conveyor) Start() {
 	c.State = StateRunning
 }
